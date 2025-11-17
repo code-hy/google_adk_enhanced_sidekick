@@ -28,17 +28,17 @@ Enhanced Sidekick ADK Capstone Project
 I'll enhance the Google ADK + FastAPI project to meet all capstone requirements, incorporating multiple advanced features for a robust submission.
 Enhanced Project Structure
 Copy
-enhanced_sidekick/
-├── main.py                      # FastAPI app with observability & A2A
-├── sidekick_adk.py             # Enhanced orchestrator with memory & evaluation
-├── sidekick_tools_adk.py       # Tools with MCP support
-├── memory_bank.py              # Long-term memory system
-├── observability.py            # Logging, tracing, metrics
-├── a2a_protocol.py             # A2A protocol implementation
-├── requirements.txt
-├── Dockerfile                  # For Cloud Run deployment
-├── README.md                   # Comprehensive documentation
-└── deploy.sh                   # Deployment script
+enhanced_sidekick/  
+ ├── main.py                     # FastAPI app with observability & A2A  
+ ├── sidekick_adk.py             # Enhanced orchestrator with memory & evaluation  
+ ├── sidekick_tools_adk.py       # Tools with MCP support  
+ ├── memory_bank.py              # Long-term memory system  
+ ├── observability.py            # Logging, tracing, metrics  
+ ├── a2a_protocol.py             # A2A protocol implementation  
+ ├── requirements.txt  
+ ├── Dockerfile                  # For Cloud Run deployment  
+ ├── README.md                   # Comprehensive documentation  
+ └── deploy.sh                   # Deployment script  
 1. requirements.txt (Enhanced Dependencies)
 txt
 Copy
