@@ -1,0 +1,38 @@
+# Core Frameworks
+fastapi==0.115.0
+uvicorn[standard]==0.32.0
+websockets==13.1
+python-dotenv==1.0.1
+
+# Google ADK & Gemini
+google-adk==0.1.0
+google-genai==0.3.0
+
+# Tools & Integrations
+playwright==1.48.0
+beautifulsoup4==4.12.3
+google-serper==0.1.0
+wikipedia==1.4.0
+jsonschema==4.23.0
+
+# Memory & Vector Store
+chromadb==0.5.15
+sentence-transformers==3.2.1
+
+# Observability
+opentelemetry-api==1.27.0
+opentelemetry-sdk==1.27.0
+opentelemetry-exporter-gcp-trace==1.7.0
+opentelemetry-instrumentation-fastapi==0.48b0
+structlog==24.4.0
+
+# MCP (Model Control Protocol)
+mcp==1.1.0
+
+# A2A Protocol
+pydantic==2.9.2
+cryptography==43.0.3
+
+# Data handling
+pandas==2.2.3
+pydantic-settings==2.6.1
