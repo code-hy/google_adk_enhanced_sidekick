@@ -38,15 +38,15 @@ enhanced_sidekick/
  ├── README.md                   # Comprehensive documentation  
  └── deploy.sh                   # Deployment script  
 
-### Agents
-Agent 1 - research_specialist 
-          Tools available: search_web, wikipedia_lookup, browser_navigate
-          Role: Research Analyst
-Agent 2 - coding_specialist (python software engineer)
-          Tools available: execute_python, write_file, read_file
-          Role: Data Engineer 
-Agent 3 - sidekick_evaluator (qa manager or professor)
-          Tools available:
-          Role: Quality Assurance
-Agent 4 - sidekick_orchestrator (project manager)
-          Role: CEO or project manager
+### Agents   
+Agent 1 - research_specialist     
+          Tools available: search_web, wikipedia_lookup, browser_navigate   
+          Role: Research Analyst    
+Agent 2 - coding_specialist (python software engineer)    
+          Tools available: execute_python, write_file, read_file    
+          Role: Data Engineer   
+Agent 3 - sidekick_evaluator (qa manager or professor)   
+          Tools available:    
+          Role: Quality Assurance   
+Agent 4 - sidekick_orchestrator (project manager)   
+          Role: CEO or project manager    
