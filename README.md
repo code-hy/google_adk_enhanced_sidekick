@@ -24,10 +24,8 @@ A production-ready multi-agent system featuring:
 
 ## 🏗️ Architecture
 Enhancing Agent System with Memory Observability Deployment and Evaluation
-Enhanced Sidekick ADK Capstone Project
-I'll enhance the Google ADK + FastAPI project to meet all capstone requirements, incorporating multiple advanced features for a robust submission.
-Enhanced Project Structure
-Copy
+Google ADK Enhanced Sidekick Capstone Project
+
 enhanced_sidekick/  
  ├── main.py                     # FastAPI app with observability & A2A  
  ├── sidekick_adk.py             # Enhanced orchestrator with memory & evaluation  
@@ -40,3 +38,15 @@ enhanced_sidekick/
  ├── README.md                   # Comprehensive documentation  
  └── deploy.sh                   # Deployment script  
 
+### Agents
+Agent 1 - research_specialist 
+          Tools available: search_web, wikipedia_lookup, browser_navigate
+          Role: Research Analyst
+Agent 2 - coding_specialist (python software engineer)
+          Tools available: execute_python, write_file, read_file
+          Role: Data Engineer 
+Agent 3 - sidekick_evaluator (qa manager or professor)
+          Tools available:
+          Role: Quality Assurance
+Agent 4 - sidekick_orchestrator (project manager)
+          Role: CEO or project manager
