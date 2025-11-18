@@ -1,49 +1,23 @@
-import chromadb
-from chromadb.config import Settings
-from sentence_transformers import SentenceTransformer
-import uuid
-from datetime import datetime
-from typing import List, Dict, Any, Optional
-import json
+# memory_bank.py - Pure Python Version (No ChromaDB needed)
+
 import os
-from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Dict, Any, Optional
+from datetime import datetime
+import uuid
+import pickle
 
-@dataclass
-class MemoryEntry:
-    """Represents a memory entry"""
-    id: str
-    content: str
-    metadata: Dict[str, Any]
-    timestamp: datetime
-    session_id: str
-    importance_score: float = 0.5
-
+# Simple memory storage for development
 class MemoryBank:
-    """Long-term memory system with vector search"""
+    """Lightweight in-memory storage with basic search capabilities."""
     
     def __init__(self, persist_directory: str = "./memory_bank"):
-        self.persist_dir = persist_directory
-        os.makedirs(persist_dir, exist_ok=True)
+        self.persist_dir = Path(persist_directory)
+        self.persist_dir.mkdir(exist_ok=True)
+        self.memories: List[Dict[str, Any]] = []
+        self.load_from_disk()  # Load saved memories on startup
+        print(f"💾 MemoryBank initialized (simple storage)")
         
-        # ChromaDB client
-        self.client = chromadb.PersistentClient(
-            path=persist_directory,
-            settings=Settings(anonymized_telemetry=False)
-        )
-        
-        # Get or create collection
-        self.collection = self.client.get_or_create_collection(
-            name="sidekick_memories",
-            metadata={"hnsw:space": "cosine"}
-        )
-        
-        # Embedding model
-        self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
-        
-        # Context compaction threshold
-        self.max_context_tokens = 8000
-        self.importance_threshold = 0.6
-    
     def add_memory(
         self,
         content: str,
@@ -51,29 +25,21 @@ class MemoryBank:
         metadata: Dict[str, Any] = None,
         importance_score: float = 0.5
     ) -> str:
-        """Add a new memory entry"""
+        """Add a new memory entry."""
         memory_id = str(uuid.uuid4())
         timestamp = datetime.utcnow()
         
-        # Create embedding
-        embedding = self.embedder.encode(content).tolist()
-        
-        # Prepare metadata
-        meta = {
+        memory = {
+            "id": memory_id,
+            "content": content[:500],  # Limit size
+            "metadata": metadata or {},
+            "timestamp": timestamp,
             "session_id": session_id,
-            "timestamp": timestamp.isoformat(),
-            "importance_score": importance_score,
-            **(metadata or {})
+            "importance_score": importance_score
         }
         
-        # Store in ChromaDB
-        self.collection.add(
-            ids=[memory_id],
-            embeddings=[embedding],
-            documents=[content],
-            metadatas=[meta]
-        )
-        
+        self.memories.append(memory)
+        self.save_to_disk()  # Persist immediately
         return memory_id
     
     def search_memories(
@@ -82,117 +48,88 @@ class MemoryBank:
         session_id: Optional[str] = None,
         limit: int = 5,
         min_importance: float = 0.0
-    ) -> List[MemoryEntry]:
-        """Search memories by semantic similarity"""
-        query_embedding = self.embedder.encode(query).tolist()
+    ) -> List[Dict[str, Any]]:
+        """Search memories by keyword matching (simple but effective)."""
+        # Filter by importance and session
+        candidates = [
+            m for m in self.memories 
+            if m["importance_score"] >= min_importance
+            and (session_id is None or m["session_id"] == session_id)
+        ]
         
-        # Build filter
-        where_filter = {"importance_score": {"$gte": min_importance}}
-        if session_id:
-            where_filter["session_id"] = session_id
+        # Simple keyword matching
+        query_words = query.lower().split()
+        scored = []
         
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=limit,
-            where=where_filter,
-            include=["documents", "metadatas"]
-        )
+        for memory in candidates:
+            content_lower = memory["content"].lower()
+            score = sum(1 for word in query_words if word in content_lower)
+            if score > 0:
+                scored.append((memory, score))
         
-        memories = []
-        if results["ids"]:
-            for i, memory_id in enumerate(results["ids"][0]):
-                memories.append(
-                    MemoryEntry(
-                        id=memory_id,
-                        content=results["documents"][0][i],
-                        metadata=results["metadatas"][0][i],
-                        timestamp=datetime.fromisoformat(
-                            results["metadatas"][0][i]["timestamp"]
-                        ),
-                        session_id=results["metadatas"][0][i]["session_id"],
-                        importance_score=results["metadatas"][0][i]["importance_score"]
-                    )
-                )
-        
-        return memories
+        # Sort by relevance and importance
+        scored.sort(key=lambda x: (x[1], x[0]["importance_score"]), reverse=True)
+        return [item[0] for item in scored[:limit]]
     
     def get_session_summary(self, session_id: str) -> str:
-        """Generate a summary of a session"""
-        results = self.collection.get(
-            where={"session_id": session_id},
-            include=["documents", "metadatas"]
-        )
+        """Generate a summary of a session."""
+        session_memories = [m for m in self.memories if m["session_id"] == session_id]
         
-        if not results["ids"]:
+        if not session_memories:
             return "No memories found for this session."
         
-        # Sort by importance
-        memories = sorted(
-            zip(results["documents"], results["metadatas"]),
-            key=lambda x: x[1].get("importance_score", 0),
-            reverse=True
-        )
-        
-        # Generate summary
         summary = f"Session {session_id} Summary:\n"
         summary += "=" * 50 + "\n"
+        summary += f"Total memories: {len(session_memories)}\n\n"
         
-        for i, (doc, meta) in enumerate(memories[:10], 1):
-            summary += f"\n{i}. {doc[:100]}..."
-            summary += f"\n   Importance: {meta.get('importance_score', 0):.2f}"
+        # Show top memories
+        for i, memory in enumerate(sorted(session_memories, key=lambda x: x["importance_score"], reverse=True)[:5], 1):
+            summary += f"{i}. Score: {memory['importance_score']:.2f}\n"
+            summary += f"   {memory['content'][:120]}...\n"
         
         return summary
     
     def compact_context(self, full_history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Intelligently compact context window"""
-        # Calculate token count (rough estimation)
-        def estimate_tokens(text: str) -> int:
-            return len(text.split()) * 1.3  # Rough estimate
-        
-        current_tokens = sum(
-            estimate_tokens(msg.get("content", ""))
-            for msg in full_history
-        )
-        
-        if current_tokens <= self.max_context_tokens:
-            return full_history
-        
+        """Intelligently compact context window."""
         # Keep recent messages
-        compacted = []
-        token_budget = self.max_context_tokens * 0.7  # 70% for recent
+        recent = full_history[-8:]  # Last 8 messages
         
-        # Add system messages first
-        for msg in full_history:
-            if msg.get("role") == "system":
-                compacted.append(msg)
-                token_budget -= estimate_tokens(msg.get("content", ""))
-        
-        # Add recent messages from end
-        for msg in reversed(full_history):
-            if msg.get("role") != "system":
-                msg_tokens = estimate_tokens(msg.get("content", ""))
-                if token_budget - msg_tokens > 0:
-                    compacted.insert(len([m for m in compacted if m.get("role") == "system"]), msg)
-                    token_budget -= msg_tokens
-                else:
-                    break
-        
-        # Add memory-augmented context
-        if full_history:
-            recent_query = full_history[-1].get("content", "")
-            important_memories = self.search_memories(
-                recent_query,
-                limit=3,
-                min_importance=self.importance_threshold
-            )
+        # Add relevant memories if space
+        if len(full_history) > 0:
+            query = full_history[-1].get("content", "")
+            important_memories = self.search_memories(query, limit=2, min_importance=0.7)
             
             if important_memories:
                 memory_context = {
                     "role": "system",
-                    "content": "Relevant past memories:\n" + "\n".join(
-                        f"- {m.content[:150]}..." for m in important_memories
+                    "content": "Relevant memories:\n" + "\n".join(
+                        f"- {m['content'][:100]}..." for m in important_memories
                     )
                 }
-                compacted.insert(len([m for m in compacted if m.get("role") == "system"]), memory_context)
+                return [memory_context] + recent
         
-        return compacted
+        return recent
+    
+    def save_to_disk(self):
+        """Persist memories to disk."""
+        try:
+            file_path = self.persist_dir / "memories.pkl"
+            with open(file_path, 'wb') as f:
+                pickle.dump(self.memories, f)
+        except Exception as e:
+            print(f"⚠️ Failed to save memories: {e}")
+    
+    def load_from_disk(self):
+        """Load memories from disk."""
+        try:
+            file_path = self.persist_dir / "memories.pkl"
+            if file_path.exists():
+                with open(file_path, 'rb') as f:
+                    self.memories = pickle.load(f)
+                print(f"💾 Loaded {len(self.memories)} memories from disk")
+        except Exception as e:
+            print(f"⚠️ Failed to load memories: {e}")
+            self.memories = []
+
+# Optional: If you want vector search later, install these:
+# pip install chromadb>=0.4.0 sentence-transformers

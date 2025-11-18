@@ -1,12 +1,12 @@
 from playwright.async_api import async_playwright
-from google.adk.tools import Tool, tool
+from google.adk.tools import tool
 from dotenv import load_dotenv
 import os
 import requests
 import aiofiles
 from pathlib import Path
 import json
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Callable
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 import asyncio
@@ -63,25 +63,78 @@ class MCPClientManager:
 # Initialize MCP manager
 mcp_manager = MCPClientManager()
 
-# Enhanced tools with observability
-@tool(name="send_push_notification")
-def send_push_notification(text: str) -> str:
-    """Send a push notification to the user via Pushover.
+@tool(name="send_notification")
+def send_notification(text: str) -> str:
+    """Send free notification to Telegram (no cost, no app install needed).
     
-    Args:
-        text: The message text to send
-        
-    Returns:
-        Success message or error
+    Setup:
+    1. Message @BotFather on Telegram, type /newbot
+    2. Message @userinfobot to get your TELEGRAM_CHAT_ID
+    3. Add to .env: TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID
     """
+    bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
+    chat_id = os.getenv("TELEGRAM_CHAT_ID")
+    
+    if not bot_token or not chat_id:
+        return "⚠️ Skipped: Add TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID to .env"
+    
     try:
-        requests.post(
-            pushover_url,
-            data={"token": pushover_token, "user": pushover_user, "message": text}
+        url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+        response = requests.post(
+            url,
+            json={"chat_id": chat_id, "text": text},
+            timeout=10
         )
-        return "Push notification sent successfully"
+        response.raise_for_status()
+        return "✅ Telegram notification sent!"
     except Exception as e:
-        return f"Failed to send notification: {str(e)}"
+        return f"❌ Telegram error: {str(e)[:100]}"
+    
+
+# @tool(name="send_notification")
+# def send_notification(message: str) -> str:
+#     """Send free notification via Telegram Bot (no cost).
+#     Args:
+#         text: The message text to send
+        
+#     Returns:
+#         Success message or error
+#     """
+#     import requests
+    
+#     # Get from Kaggle Secrets or .env
+#     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")  # Create free at @BotFather
+#     chat_id = os.getenv("TELEGRAM_CHAT_ID")      # Your user ID
+    
+#     if not bot_token or not chat_id:
+#         return "⚠️ Notification skipped: Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID"
+    
+#     try:
+#         url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+#         requests.post(url, json={"chat_id": chat_id, "text": message}, timeout=10)
+#         return "✅ Telegram notification sent"
+#     except Exception as e:
+#         return f"❌ Telegram failed: {str(e)}"
+
+# Enhanced tools with observability
+# @tool(name="send_push_notification")
+# def send_push_notification(text: str) -> str:
+#     """Send a push notification to the user via Pushover.
+    
+#     Args:
+#         text: The message text to send
+        
+#     Returns:
+#         Success message or error
+#     """
+#     try:
+#         requests.post(
+#             pushover_url,
+#             data={"token": pushover_token, "user": pushover_user, "message": text}
+#         )
+#         return "Push notification sent successfully"
+#     except Exception as e:
+#         return f"Failed to send notification: {str(e)}"
 
 @tool(name="search_web")
 def search_web(query: str) -> str:
@@ -317,7 +370,7 @@ async def initialize_mcp_servers():
             )
             logger.info(f"Initialized MCP server: {server_name}")
 
-async def get_all_tools() -> tuple[List[Tool], Any, Any]:
+async def get_all_tools() -> tuple[List[Callable], Any, Any]:
     """Get all tools including browser and utility tools"""
     browser_tools, browser, playwright = await get_browser_tools()
     await initialize_mcp_servers()

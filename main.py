@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import json
 import asyncio
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, Any, Optional, List
 from sidekick_adk import SidekickADK
 from observability import setup_tracing, logger, request_counter
 from a2a_protocol import A2AServer, A2AMessage
@@ -13,6 +13,12 @@ import os
 
 active_sidekicks: Dict[str, SidekickADK] = {}
 a2a_server = None
+# Create required directories on startup
+REQUIRED_DIRS = ["static", "sandbox", "memory_bank", "agent_states"]
+for dir_name in REQUIRED_DIRS:
+    Path(dir_name).mkdir(exist_ok=True)
+    print(f"✅ Ensured directory exists: {dir_name}")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -38,6 +44,135 @@ from fastapi.staticfiles import StaticFiles
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 html = """... (enhanced HTML with metrics dashboard) ..."""
+html = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Sidekick ADK Chat</title>
+    <style>
+        body { font-family: system-ui; max-width: 900px; margin: 40px auto; padding: 20px; background: #f8f9fa; }
+        #messages { border: 1px solid #ccc; height: 400px; overflow-y: scroll; padding: 10px; background: white; border-radius: 8px; }
+        .message { margin: 10px 0; padding: 10px; border-radius: 5px; animation: fadeIn 0.3s; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .user { background: #e3f2fd; text-align: right; margin-left: 20%; }
+        .assistant { background: #f3e5f5; margin-right: 20%; }
+        .evaluator { background: #fff3e0; font-style: italic; margin-right: 15%; margin-left: 15%; }
+        input, textarea { width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; border: none; border-radius: 4px; }
+        .primary { background: #4CAF50; color: white; }
+        .stop { background: #f44336; color: white; }
+        .controls { display: flex; gap: 10px; margin-top: 10px; }
+        #status { font-size: 0.8em; color: #666; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <h1>🤖 Sidekick ADK - Personal Co-Worker</h1>
+    <p>Your AI assistant for research, coding, and task automation.</p>
+    
+    <div id="messages"></div>
+    
+    <div>
+        <input type="text" id="sessionId" placeholder="Session ID (leave empty for new session)" readonly />
+        <textarea id="successCriteria" placeholder="What are your success criteria? (e.g., 'Save a summary to file')"></textarea>
+        <textarea id="message" placeholder="Your request to the Sidekick..." rows="3"></textarea>
+    </div>
+    
+    <div class="controls">
+        <button id="connectBtn" class="primary">Connect</button>
+        <button id="goBtn" class="primary">🚀 Submit</button>
+        <button id="resetBtn" class="stop">Reset</button>
+        <button id="clearBtn" class="stop">Clear Chat</button>
+    </div>
+    
+    <div id="status">Status: Not connected</div>
+
+    <script>
+        let ws = null;
+        let sessionId = null;
+        
+        document.getElementById('connectBtn').onclick = () => {
+            const inputSessionId = document.getElementById('sessionId').value;
+            const url = `ws://localhost:8000/ws${inputSessionId ? '?session_id=' + inputSessionId : ''}`;
+            
+            ws = new WebSocket(url);
+            
+            ws.onopen = () => {
+                document.getElementById('status').innerHTML = '✅ Connected';
+                ws.send(JSON.stringify({action: 'initialize'}));
+            };
+            
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                
+                if (data.type === 'initialized') {
+                    sessionId = data.session_id;
+                    document.getElementById('sessionId').value = sessionId;
+                }
+                
+                addMessage(data.role || 'assistant', data.content, data.type);
+            };
+            
+            ws.onclose = () => {
+                document.getElementById('status').innerHTML = '❌ Disconnected';
+            };
+            
+            ws.onerror = (error) => {
+                document.getElementById('status').innerHTML = '❌ Connection error';
+                console.error('WebSocket error:', error);
+            };
+        };
+        
+        document.getElementById('goBtn').onclick = () => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert('Not connected. Click Connect first.');
+                return;
+            }
+            
+            const message = document.getElementById('message').value;
+            const successCriteria = document.getElementById('successCriteria').value;
+            
+            ws.send(JSON.stringify({
+                action: 'process',
+                message: message,
+                success_criteria: successCriteria
+            }));
+            
+            addMessage('user', message, 'user_message');
+            document.getElementById('message').value = '';
+            document.getElementById('status').innerHTML = '🤔 Processing...';
+        };
+        
+        document.getElementById('resetBtn').onclick = () => {
+            if (!ws) return;
+            ws.send(JSON.stringify({action: 'reset'}));
+            document.getElementById('messages').innerHTML = '';
+            document.getElementById('status').innerHTML = '🔄 Session reset';
+        };
+        
+        document.getElementById('clearBtn').onclick = () => {
+            document.getElementById('messages').innerHTML = '';
+        };
+        
+        function addMessage(role, content, type = '') {
+            const messages = document.getElementById('messages');
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${role} ${type || ''}`;
+            
+            const time = new Date().toLocaleTimeString();
+            msgDiv.innerHTML = `<strong>${role.toUpperCase()} [${time}]</strong><br/>${content}`;
+            
+            messages.appendChild(msgDiv);
+            messages.scrollTop = messages.scrollHeight;
+        }
+        
+        // Auto-connect on load
+        window.onload = () => {
+            document.getElementById('connectBtn').click();
+        };
+    </script>
+</body>
+</html>
+"""
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -61,10 +196,13 @@ async def log_requests(request: Request, call_next):
     )
     
     return response
-
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def get_chat_interface():
-    return HTMLResponse(html)
+    """Serve the main chat interface"""
+    return HTMLResponse(content=html, status_code=200)
+##@app.get("/")
+##async def get_chat_interface():
+##    return HTMLResponse(html)
 
 @app.get("/metrics")
 async def get_metrics():
@@ -234,3 +372,20 @@ async def health_check():
         "timestamp": datetime.utcnow().isoformat(),
         "version": "1.0.0"
     }
+
+
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    print("🚀 Starting Sidekick ADK Server...")
+    print("📱 Access the UI at: http://localhost:8000")
+    print("📡 Health check: http://localhost:8000/health")
+    
+    uvicorn.run(
+        "main:app",  # Module:app_name
+        host="0.0.0.0",
+        port=8000,
+        reload=True,  # Auto-reload on code changes
+        log_level="info"
+    )
