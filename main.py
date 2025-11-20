@@ -1,3 +1,4 @@
+# main.py
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from contextlib import asynccontextmanager
@@ -10,6 +11,9 @@ from observability import setup_tracing, logger, request_counter
 from a2a_protocol import A2AServer, A2AMessage
 from pathlib import Path
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 
 active_sidekicks: Dict[str, SidekickADK] = {}
 a2a_server = None
@@ -42,6 +46,28 @@ app = FastAPI(title="Enhanced Sidekick ADK API", lifespan=lifespan)
 # Serve static files
 from fastapi.staticfiles import StaticFiles
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Add a handler for /v1/models to prevent 404 errors
+@app.get("/v1/models")
+async def get_models():
+    """Return a mock models response to prevent 404 errors"""
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": "gemini-1.5-flash",
+                "object": "model",
+                "created": int(datetime.now().timestamp()),
+                "owned_by": "google"
+            },
+            {
+                "id": "gemini-1.5-pro",
+                "object": "model",
+                "created": int(datetime.now().timestamp()),
+                "owned_by": "google"
+            }
+        ]
+    }
 
 html = """... (enhanced HTML with metrics dashboard) ..."""
 html = """
@@ -181,11 +207,14 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     duration = (datetime.utcnow() - start_time).total_seconds()
     
-    request_counter.add(1, {
-        "method": request.method,
-        "path": request.url.path,
-        "status": response.status_code
-    })
+    try:
+        request_counter.add(1, {
+            "method": request.method,
+            "path": request.url.path,
+            "status": response.status_code
+        })
+    except:
+        pass  # Ignore metric recording errors
     
     logger.info(
         "http_request",
@@ -196,13 +225,11 @@ async def log_requests(request: Request, call_next):
     )
     
     return response
+
 @app.get("/", response_class=HTMLResponse)
 async def get_chat_interface():
     """Serve the main chat interface"""
     return HTMLResponse(content=html, status_code=200)
-##@app.get("/")
-##async def get_chat_interface():
-##    return HTMLResponse(html)
 
 @app.get("/metrics")
 async def get_metrics():
@@ -234,6 +261,8 @@ async def resume_agent(session_id: str):
     sidekick.resume()
     
     return {"message": "Agent resumed", "session_id": session_id}
+
+# In main.py, find the websocket_endpoint function and update the message handling:
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, session_id: Optional[str] = Query(None)):
@@ -275,41 +304,49 @@ async def websocket_endpoint(websocket: WebSocket, session_id: Optional[str] = Q
                 user_message = message_data["message"]
                 success_criteria = message_data.get("success_criteria", "")
                 
-                await websocket.send_json({
-                    "role": "user",
-                    "content": user_message,
-                    "type": "user_message"
-                })
+                # Don't add user message here - let the frontend handle it
+                # await websocket.send_json({
+                #     "role": "user",
+                #     "content": user_message,
+                #     "type": "user_message"
+                # })
                 
-                result = await sidekick.run_superstep(
-                    message=user_message,
-                    success_criteria=success_criteria,
-                    history=current_history
-                )
-                
-                await websocket.send_json({
-                    "role": "assistant",
-                    "content": result["worker_response"],
-                    "type": "worker_response"
-                })
-                
-                await websocket.send_json({
-                    "role": "evaluator",
-                    "content": f"Score: {result['quality_score']:.2f} - {result['evaluator_feedback']}",
-                    "type": "evaluator_feedback"
-                })
-                
-                current_history.extend(result["conversation_update"])
-                
-                await websocket.send_json({
-                    "role": "system",
-                    "content": {
-                        "success_criteria_met": result["success_criteria_met"],
-                        "user_input_needed": result["user_input_needed"],
-                        "quality_score": result["quality_score"]
-                    },
-                    "type": "status_update"
-                })
+                try:
+                    result = await sidekick.run_superstep(
+                        message=user_message,
+                        success_criteria=success_criteria,
+                        history=current_history
+                    )
+                    
+                    await websocket.send_json({
+                        "role": "assistant",
+                        "content": result["worker_response"],
+                        "type": "worker_response"
+                    })
+                    
+                    await websocket.send_json({
+                        "role": "evaluator",
+                        "content": f"Score: {result['quality_score']:.2f} - {result['evaluator_feedback']}",
+                        "type": "evaluator_feedback"
+                    })
+                    
+                    current_history.extend(result["conversation_update"])
+                    
+                    await websocket.send_json({
+                        "role": "system",
+                        "content": {
+                            "success_criteria_met": result["success_criteria_met"],
+                            "user_input_needed": result["user_input_needed"],
+                            "quality_score": result["quality_score"]
+                        },
+                        "type": "status_update"
+                    })
+                except Exception as e:
+                    await websocket.send_json({
+                        "role": "assistant",
+                        "content": f"Error processing request: {str(e)}",
+                        "type": "error"
+                    })
                 
             elif message_data.get("action") == "reset":
                 await sidekick.reset()
@@ -332,10 +369,13 @@ async def websocket_endpoint(websocket: WebSocket, session_id: Optional[str] = Q
         logger.info(f"Client disconnected from session {session_id}")
     except Exception as e:
         logger.error(f"Websocket error: {e}", session_id=session_id)
-        await websocket.send_json({
-            "type": "error",
-            "content": f"Error: {str(e)}"
-        })
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "content": f"Error: {str(e)}"
+            })
+        except:
+            pass
 
 @app.post("/a2a")
 async def a2a_protocol_endpoint(message: Dict[str, Any]):
@@ -382,10 +422,19 @@ if __name__ == "__main__":
     print("📱 Access the UI at: http://localhost:8000")
     print("📡 Health check: http://localhost:8000/health")
     
+    # uvicorn.run(
+    #     "main:app",  # Module:app_name
+    #     host="0.0.0.0",
+    #     port=8000,
+    #     reload=True,  # Auto-reload on code changes
+    #     log_level="info"
+    # )
     uvicorn.run(
-        "main:app",  # Module:app_name
+        "main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,  # Auto-reload on code changes
+        reload=True,
+        reload_dirs=["."],  # Watch the current directory for our source code
+        reload_excludes=["./sandbox/*", "./agent_states/*", "./memory_bank/*"], # But ignore these
         log_level="info"
     )
